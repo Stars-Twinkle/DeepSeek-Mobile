@@ -46,6 +46,126 @@ public class HookEntry implements IXposedHookLoadPackage {
 
         hookOkHttp(lp.classLoader);
         hookClassLoader(lp.classLoader);
+        hookReader();
+        hookSocket();
+        hookProbedClasses(lp.classLoader);
+    }
+
+    /**
+     * 官方 App 里两个可疑类：
+     *   Lxsc.a  → 日志上报，含 "Send:\nurl:" / " response:"，可能记录请求地址与响应
+     *   Ls96.z  → 含 SET/APPEND/fragments/content，疑似 SSE 解析
+     */
+    private void hookProbedClasses(final ClassLoader cl) {
+        // 先探测 domain 层（类名疑似未混淆）
+        String[] domain = {
+                "com.deepseek.chat.domain.chat.model.completion.message.AppStaticMessage",
+                "com.deepseek.chat.domain.chat.model.completion.event.ChatCompletionReadyEventData",
+                "com.deepseek.chat.domain.chat.model.completion.event.ChatCompletionHintEventData",
+                "com.deepseek.chat.domain.chat.model.completion.event.ChatCompletionCloseEventData",
+                "com.deepseek.chat.domain.chat.model.completion.event.ChatCompletionAutoTtsCapabilityData",
+                "com.deepseek.chat.domain.chat.model.completion.event.ChatCompletionCheckClientUpdateEventData",
+                "com.deepseek.chat.domain.chat.model.AppChatSession",
+                "com.deepseek.chat.network.chat.model.file.FileUploadItem"
+        };
+        for (String dn : domain) {
+            Class<?> c = XposedHelpers.findClassIfExists(dn, cl);
+            log("DOMAIN " + dn.substring(dn.lastIndexOf('.') + 1) + " -> " + (c == null ? "null" : "FOUND"));
+        }
+
+        XC_MethodHook dump = new XC_MethodHook() {
+            @Override
+            protected void beforeHookedMethod(MethodHookParam param) {
+                StringBuilder sb = new StringBuilder("ARGS[")
+                        .append(param.method.getName()).append("] ");
+                if (param.args != null) {
+                    for (Object a : param.args) {
+                        String s = a == null ? "null" : String.valueOf(a);
+                        if (s.length() > 1500) s = s.substring(0, 1500) + "…";
+                        sb.append(s).append(" | ");
+                    }
+                }
+                log(sb.toString());
+            }
+
+            @Override
+            protected void afterHookedMethod(MethodHookParam param) {
+                Object r = param.getResult();
+                if (r == null) return;
+                String s = String.valueOf(r);
+                if (s.length() > 600) s = s.substring(0, 600) + "…";
+                log("RET[" + param.method.getName() + "] " + s);
+            }
+        };
+
+        for (String cn : new String[]{"xsc"}) {
+            try {
+                Class<?> c = XposedHelpers.findClassIfExists(cn, cl);
+                if (c == null) {
+                    log("probe class missing: " + cn);
+                    continue;
+                }
+                int n = 0;
+                for (java.lang.reflect.Method m : c.getDeclaredMethods()) {
+                    try {
+                        XposedBridge.hookMethod(m, dump);
+                        n++;
+                    } catch (Throwable ignored) {
+                    }
+                }
+                log("hooked " + cn + " methods=" + n);
+            } catch (Throwable t) {
+                log("probe " + cn + " failed: " + t);
+            }
+        }
+    }
+
+    /**
+     * 不依赖类名的抓包：SSE 一定按行读，钩 BufferedReader.readLine。
+     * 只要命中带 fragments / data 关键字的行，就能还原协议。
+     */
+    private void hookReader() {
+        try {
+            XposedHelpers.findAndHookMethod(java.io.BufferedReader.class, "readLine",
+                    new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            Object r = param.getResult();
+                            if (!(r instanceof String)) return;
+                            String s = (String) r;
+                            if (s.isEmpty()) return;
+                            boolean hit = s.contains("fragments")
+                                    || s.startsWith("data:")
+                                    || s.contains("chat_session")
+                                    || s.contains("accumulated_token")
+                                    || s.contains("\"p\":\"response");
+                            if (!hit) return;
+                            if (s.length() > 3000) s = s.substring(0, 3000) + "…";
+                            log("SSE " + s);
+                        }
+                    });
+            log("buffered-reader probe installed");
+        } catch (Throwable t) {
+            log("reader probe failed: " + t);
+        }
+    }
+
+    /** 记录连到哪些域名，辅助判断是否走 Ktor/OkHttp */
+    private void hookSocket() {
+        try {
+            XposedHelpers.findAndHookMethod(java.net.Socket.class, "connect",
+                    java.net.SocketAddress.class, int.class, new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam param) {
+                            Object addr = param.args[0];
+                            if (addr != null && String.valueOf(addr).contains("deepseek")) {
+                                log("CONNECT " + addr);
+                            }
+                        }
+                    });
+        } catch (Throwable t) {
+            log("socket probe failed: " + t);
+        }
     }
 
     /** 探测：记录被加载的网络相关类，用来还原混淆后的真实类名 */
