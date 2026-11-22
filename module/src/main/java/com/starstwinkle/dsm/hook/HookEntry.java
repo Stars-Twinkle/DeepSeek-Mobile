@@ -4,6 +4,7 @@ import android.content.Context;
 import android.os.Environment;
 
 import java.io.File;
+import java.io.InputStream;
 import java.io.FileWriter;
 import java.lang.reflect.Method;
 import java.text.SimpleDateFormat;
@@ -48,7 +49,42 @@ public class HookEntry implements IXposedHookLoadPackage {
         hookClassLoader(lp.classLoader);
         hookReader();
         hookSocket();
+        hookTls();
         hookProbedClasses(lp.classLoader);
+    }
+
+    /**
+     * 钩 TLS 套接字的输入流，拿解密后的明文。
+     * 系统 Conscrypt 实现类名是稳定的，不受 App 混淆影响。
+     */
+    private void hookTls() {
+        String[] impls = {
+                "com.android.org.conscrypt.ConscryptEngineSocket",
+                "com.android.org.conscrypt.OpenSSLSocketImpl",
+                "org.conscrypt.ConscryptEngineSocket",
+                "org.conscrypt.Java8EngineSocket"
+        };
+        for (String cn : impls) {
+            Class<?> c = XposedHelpers.findClassIfExists(cn, null);
+            if (c == null) {
+                log("tls class missing: " + cn);
+                continue;
+            }
+            try {
+                XposedHelpers.findAndHookMethod(c, "getInputStream", new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam param) {
+                        Object r = param.getResult();
+                        if (!(r instanceof InputStream)) return;
+                        if (r instanceof TapStream) return;
+                        param.setResult(new TapStream((InputStream) r, line -> log("PLAIN " + line)));
+                    }
+                });
+                log("tls hooked: " + cn);
+            } catch (Throwable t) {
+                log("tls hook failed " + cn + ": " + t);
+            }
+        }
     }
 
     /**
