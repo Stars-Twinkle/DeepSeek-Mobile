@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="AppTheme" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/dsm_bg</item>
+        <item name="android:statusBarColor">@color/dsm_transparent</item>
+        <item name="android:navigationBarColor">@color/dsm_transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+    </style>
+
+    <!-- 内置浏览器 -->
+    <style name="BrowserTheme" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/dsm_bg</item>
+        <item name="android:statusBarColor">@color/dsm_transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>
