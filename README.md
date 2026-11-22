@@ -23,6 +23,42 @@
 | --- | --- | --- |
 | ![home](docs/home-light.png) | ![settings](docs/settings.png) | ![onboarding](docs/onboarding.png) |
 
+对话页（流式 + Markdown 排版）：
+
+![chat](docs/chat.png)
+
+## 两条路线
+
+### 路线 A：独立 App（已可用）
+
+`app/` 目录。自绘界面，按官方 App 的配色与结构实现，全部功能已跑通：流式、思考模式、余额、错误中文化。
+
+```powershell
+powershell -ExecutionPolicy Bypass -File build.ps1        # 产物 build/deepseek-mobile.apk
+```
+
+### 路线 B：LSPatch / LSPosed 模块（骨架已跑通，协议未完成）
+
+`module/` 目录。不修改官方 APK 的代码逻辑，用 LSPatch 把模块嵌进官方包，界面完全由官方 App 自己渲染。
+
+```powershell
+powershell -ExecutionPolicy Bypass -File build-module.ps1  # 产物 build-module/dsm-hook.apk
+
+# 用 LSPatch 嵌入官方 APK（仅本地自用，不要分发打好的包）
+java -jar lspatch.jar deepseek.apk -m build-module/dsm-hook.apk -o out/ `
+     -k keystore/debug.jks android dsm android
+```
+
+**当前状态**：模块能被加载、hook 框架生效、可记录类加载与网络请求。
+
+**尚未完成的部分（需要真实账号才能继续）**：官方 App 的网络栈是 Ktor + OkHttp，类名被 R8 混淆（`okhttp3.Request`、`io.ktor.client.HttpClient` 均不可按名引用），会话接口 `/api/v0/chat/completion` 由混淆类 `Lc6b` 构造。要完成「把会话改道到 api.deepseek.com」，还需要：
+
+1. 登录账号，抓一次真实会话的请求体与 SSE 响应格式
+2. 写请求改写 + 响应格式转换（OpenAI 兼容格式 → 官方 App 期望的格式）
+3. 处理 PoW 挑战与登录态
+
+> 注意：用 LSPatch 打出来的包内含官方代码，只能自己用，不能公开分发。
+
 ## 构建
 
 零 Gradle：`aapt2 → javac → d8 → zipalign → apksigner`，一次构建几秒。

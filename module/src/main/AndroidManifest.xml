@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.starstwinkle.dsm.hook"
+    android:versionCode="1"
+    android:versionName="0.1.0">
+
+    <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="36" />
+
+    <application
+        android:label="DeepSeek API 增强"
+        android:icon="@mipmap/ic_module"
+        android:allowBackup="false">
+
+        <!-- LSPosed / Xposed 识别模块 -->
+        <meta-data android:name="xposedmodule" android:value="true" />
+        <meta-data android:name="xposeddescription"
+            android:value="让官方 DeepSeek App 的会话走你自己的 API 密钥" />
+        <meta-data android:name="xposedminversion" android:value="93" />
+
+        <!-- 模块设置页 -->
+        <activity
+            android:name=".SettingsActivity"
+            android:exported="true"
+            android:label="DeepSeek API 增强"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
