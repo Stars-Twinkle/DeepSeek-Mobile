@@ -13,3 +13,7 @@
 *.iml
 .vscode/
 .DS_Store
+
+# 模块构建产物
+/build-module/
+

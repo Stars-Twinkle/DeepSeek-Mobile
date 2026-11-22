@@ -1,3 +1,0 @@
-"D:\\\\DSH-Workplace\\\\DeepSeek-Mobile\\\\module\\\\src\\\\main\\\\java\\\\com\\\\starstwinkle\\\\dsm\\\\hook\\\\HookEntry.java"
-"D:\\\\DSH-Workplace\\\\DeepSeek-Mobile\\\\module\\\\src\\\\main\\\\java\\\\com\\\\starstwinkle\\\\dsm\\\\hook\\\\SettingsActivity.java"
-"D:\\\\DSH-Workplace\\\\DeepSeek-Mobile\\\\build-module\\\\gen\\\\com\\\\starstwinkle\\\\dsm\\\\hook\\\\R.java"
