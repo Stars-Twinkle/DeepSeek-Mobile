@@ -48,6 +48,7 @@ public class Composer extends LinearLayout {
         input = new EditText(a);
         input.setBackground(null);
         input.setHint("给 DeepSeek 发送消息");
+        input.setContentDescription("输入框");
         input.setHintTextColor(t.text3);
         input.setTextColor(t.text);
         input.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ui.sp(a, 15.5f));
@@ -92,6 +93,7 @@ public class Composer extends LinearLayout {
         sendBtn = new ImageView(a);
         sendBtn.setScaleType(ImageView.ScaleType.CENTER);
         sendBtn.setImageResource(R.drawable.ic_send);
+        sendBtn.setContentDescription("发送");
         LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(Ui.dp(a, 36), Ui.dp(a, 36));
         sendBtn.setBackground(Ui.oval(t.brand));
         sendBtn.setColorFilter(Color.WHITE);

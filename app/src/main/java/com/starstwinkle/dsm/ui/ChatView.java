@@ -249,8 +249,8 @@ public class ChatView extends FrameLayout implements MainActivity.Screen {
     /** 可折叠的思考过程 */
     private View thinkBlock(String reasoning, boolean collapsed) {
         LinearLayout box = Ui.column(act);
-        box.setPadding(Ui.dp(act, 12), 0, 0, Ui.dp(act, 4));
-        box.setBackground(Ui.round(0x00000000, 0, t.lineStrong, Ui.dp(act, 2)));
+        box.setPadding(Ui.dp(act, 12), Ui.dp(act, 8), Ui.dp(act, 12), Ui.dp(act, 8));
+        box.setBackground(Ui.round(t.card2, Ui.dp(act, 12)));
 
         LinearLayout head = Ui.row(act);
         TextView label = Ui.tv(act, collapsed ? "已深度思考" : "思考中…", 12.5f, t.text3, false);
@@ -363,8 +363,8 @@ public class ChatView extends FrameLayout implements MainActivity.Screen {
         liveRoot = (LinearLayout) aiShell();
         liveThinkBox = (LinearLayout) Ui.column(act);
         liveThinkBox.setVisibility(GONE);
-        liveThinkBox.setPadding(Ui.dp(act, 12), 0, 0, Ui.dp(act, 4));
-        liveThinkBox.setBackground(Ui.round(0x00000000, 0, t.lineStrong, Ui.dp(act, 2)));
+        liveThinkBox.setPadding(Ui.dp(act, 12), Ui.dp(act, 8), Ui.dp(act, 12), Ui.dp(act, 8));
+        liveThinkBox.setBackground(Ui.round(t.card2, Ui.dp(act, 12)));
         TextView thinkTitle = Ui.tv(act, "思考中…", 12.5f, t.text3, false);
         liveThinkBox.addView(thinkTitle);
         liveThink = Ui.tv(act, "", 13f, t.text3, false);

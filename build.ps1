@@ -151,7 +151,7 @@ if (-not $NoInstall) {
         if ($dev) {
             $serial = ($dev -split '\s+')[0]
             Write-Host "== install to $serial" -ForegroundColor Cyan
-            & $adb -s $serial install -r $final
+            & $adb -s $serial install -r --no-incremental $final
         } else {
             Write-Host "== no emulator attached, skip install" -ForegroundColor Yellow
         }

@@ -57,6 +57,7 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         prefs = Prefs.get(this);
         store = Store.get(this);
+        applyDebugOverrides();
         theme = Theme.resolve(this);
 
         Window w = getWindow();
@@ -82,6 +83,21 @@ public class MainActivity extends Activity {
         go(S_HOME, false);
     }
 
+    /**
+     * 调试用：允许通过 am start -e baseurl "..." -e apikey "..." 注入配置，
+     * 方便在模拟器上指向本地 mock 服务做联调。
+     */
+    private void applyDebugOverrides() {
+        Bundle ex = getIntent() == null ? null : getIntent().getExtras();
+        if (ex == null) return;
+        String base = ex.getString("baseurl");
+        if (base != null && !base.isEmpty()) prefs.setBaseUrl(base);
+        String key = ex.getString("apikey");
+        if (key != null && !key.isEmpty()) prefs.setApiKey(key);
+        String theme = ex.getString("theme");
+        if (theme != null && !theme.isEmpty()) prefs.setTheme(theme);
+    }
+
     private void applyFontScale() {
         String f = prefs.font();
         if ("large".equals(f)) Ui.fontScale = 1.08f;
@@ -95,44 +111,41 @@ public class MainActivity extends Activity {
     public int statusBar() { return statusBarHeight; }
 
     /* ---------- 路由 ---------- */
+    private View ensure(String screen) {
+        View v = cache.get(screen);
+        if (v == null) {
+            v = create(screen);
+            cache.put(screen, v);
+            stage.addView(v, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        }
+        return v;
+    }
+
     public void go(String screen, boolean animate) {
         if (screen.equals(current)) return;
 
-        View next = cache.get(screen);
-        if (next == null) {
-            next = create(screen);
-            cache.put(screen, next);
-            stage.addView(next, new FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        }
-
+        View next = ensure(screen);
         View prev = current == null ? null : cache.get(current);
 
-        if (prev != null) {
-            if (animate) {
-                prev.animate().translationX(-stage.getWidth() * 0.22f).alpha(0f)
-                        .setDuration(220).start();
-            }
-            prev.setVisibility(View.VISIBLE);
+        // 先把所有其它页面收起来，杜绝两层叠在一起
+        for (View v : cache.values()) {
+            if (v == next) continue;
+            v.animate().cancel();
+            v.setVisibility(View.GONE);
+            v.setTranslationX(0f);
+            v.setAlpha(1f);
         }
 
+        next.animate().cancel();
         next.setVisibility(View.VISIBLE);
         next.bringToFront();
+        next.setAlpha(1f);
         if (animate) {
-            next.setTranslationX(stage.getWidth());
-            next.setAlpha(1f);
-            next.animate().translationX(0f).setDuration(280).start();
+            next.setTranslationX(stage.getWidth() * 0.16f);
+            next.animate().translationX(0f).setDuration(240).start();
         } else {
             next.setTranslationX(0f);
-            next.setAlpha(1f);
-        }
-
-        if (prev != null) {
-            prev.postDelayed(() -> {
-                prev.setVisibility(View.GONE);
-                prev.setTranslationX(0f);
-                prev.setAlpha(1f);
-            }, 300);
         }
 
         current = screen;
@@ -147,7 +160,7 @@ public class MainActivity extends Activity {
         }
         stack.remove(stack.size() - 1);
         String target = stack.get(stack.size() - 1);
-        current = null; // 强制重新进入
+        current = null;
         go(target, true);
     }
 

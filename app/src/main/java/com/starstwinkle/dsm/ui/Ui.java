@@ -225,6 +225,62 @@ public final class Ui {
         return dialog;
     }
 
+    /* ---------- 输入框 ---------- */
+    public interface OnInput { void onInput(String value); }
+
+    public static Dialog inputDialog(Activity a, Theme t, String title, String initial,
+                                     String hint, OnInput cb) {
+        Dialog dialog = new Dialog(a);
+        Window w = dialog.getWindow();
+        if (w != null) {
+            w.setBackgroundDrawableResource(android.R.color.transparent);
+            w.setLayout(dp(a, 320), ViewGroup.LayoutParams.WRAP_CONTENT);
+        }
+        LinearLayout panel = column(a);
+        panel.setBackground(round(t.card, dp(a, 20)));
+        panel.setPadding(dp(a, 18), dp(a, 18), dp(a, 18), dp(a, 10));
+        panel.addView(tv(a, title, 15f, t.text, true));
+
+        final android.widget.EditText input = new android.widget.EditText(a);
+        input.setText(initial == null ? "" : initial);
+        input.setSingleLine(true);
+        input.setTextColor(t.text);
+        input.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, sp(a, 13f));
+        input.setBackground(round(t.card2, dp(a, 12), t.lineStrong, dp(a, 1)));
+        input.setPadding(dp(a, 12), dp(a, 10), dp(a, 12), dp(a, 10));
+        LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        ilp.topMargin = dp(a, 12);
+        panel.addView(input, ilp);
+
+        if (hint != null) {
+            TextView h = tv(a, hint, 11f, t.text3, false);
+            h.setLineSpacing(dp(a, 2), 1.5f);
+            h.setPadding(0, dp(a, 8), 0, 0);
+            panel.addView(h);
+        }
+
+        LinearLayout buttons = row(a);
+        buttons.setGravity(Gravity.END);
+        buttons.setPadding(0, dp(a, 12), 0, 0);
+        TextView cancel = tv(a, "取消", 14f, t.text2, false);
+        cancel.setPadding(dp(a, 14), dp(a, 10), dp(a, 14), dp(a, 10));
+        cancel.setOnClickListener(v -> dialog.dismiss());
+        buttons.addView(cancel);
+        TextView ok = tv(a, "保存", 14f, t.brand, true);
+        ok.setPadding(dp(a, 14), dp(a, 10), dp(a, 14), dp(a, 10));
+        ok.setOnClickListener(v -> {
+            dialog.dismiss();
+            cb.onInput(input.getText().toString());
+        });
+        buttons.addView(ok);
+        panel.addView(buttons);
+
+        dialog.setContentView(panel);
+        dialog.show();
+        return dialog;
+    }
+
     /* ---------- 长文本查看 ---------- */
     public static Dialog infoDialog(Activity a, Theme t, String title, String body) {
         Dialog dialog = new Dialog(a);

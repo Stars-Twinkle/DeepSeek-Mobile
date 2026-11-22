@@ -110,6 +110,11 @@ public final class NetError {
                     "没能连上服务器。请检查：手机是否联网、代理或 VPN 是否不稳定、系统时间是否准确。",
                     Action.RETRY, Action.NONE);
         }
+        if (msg.contains("Cleartext") || msg.contains("cleartext")) {
+            return new NetError("cleartext", "这个地址不能用明文 HTTP",
+                    "系统不允许以 http:// 连接。把 API 地址改成 https://，或换用支持 HTTPS 的代理地址。",
+                    Action.OPEN_KEY, Action.NONE);
+        }
         return new NetError("unknown", "出了点问题",
                 "请求没能完成" + (msg.isEmpty() ? "" : "：" + trim(msg)) + "。可以重试一次。",
                 Action.RETRY, Action.NONE);

@@ -119,6 +119,14 @@ public class SettingsView extends FrameLayout implements MainActivity.Screen {
         g3.addView(rowWith("思考强度", "仅在思考模式下生效", effortValue, true, v -> pickEffort()));
         g3.addView(rowWith("用官方 App 继续", "没有密钥时交给官方 App 原生对话", null, true,
                 v -> act.openOfficialApp()));
+        g3.addView(rowWith("API 地址", act.prefs().baseUrl(), null, true, v ->
+                Ui.inputDialog(act, t, "API 地址", act.prefs().baseUrl(),
+                        "默认 https://api.deepseek.com，用代理时改成你的地址", val -> {
+                            String u = val == null ? "" : val.trim();
+                            if (u.isEmpty()) u = "https://api.deepseek.com";
+                            act.prefs().setBaseUrl(u);
+                            act.rebuildAll();
+                        })));
         g3.addView(rowWith("清空所有对话", null, null, true, v ->
                 Ui.confirm(act, t, "清空所有对话？", "所有本地记录都会被删除，无法恢复。",
                         "清空", "取消", () -> {
