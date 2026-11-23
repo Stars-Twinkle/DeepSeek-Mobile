@@ -78,7 +78,7 @@ public class HookEntry implements IXposedHookLoadPackage {
                         if (!(r instanceof InputStream)) return;
                         if (r instanceof InjectStream || r instanceof TapStream) return;
                         final Object socket = param.thisObject;
-                        param.setResult(new InjectStream((InputStream) r, () -> ChatBridge.build(socket)));
+                        param.setResult(new InjectStream((InputStream) r, socket, () -> ChatBridge.build(socket)));
                         log("inject stream armed");
                     }
                 });

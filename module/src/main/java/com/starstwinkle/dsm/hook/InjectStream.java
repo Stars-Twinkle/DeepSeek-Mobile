@@ -5,31 +5,40 @@ import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 
 /**
- * 会话响应劫持流。
+ * 会话响应劫持。
  *
- * 工作方式：
- *   1. 先正常读，累积字节，等官方 SSE 的首帧（含 "v":{"response"）出现
- *   2. 一旦确认是会话流，丢弃官方数据，改为返回我们自己构造的 SSE
- *      （内容 = 调用 api.deepseek.com 后按官方格式转码）
- *   3. 官方 UI 全程无感知
+ * 两条路径：
+ *   A. HTTP/1.1（官方会话实际走这条）：放行响应头，body 换成我们构造的 chunked 流
+ *   B. HTTP/2：放行 HEADERS 帧，在第一个 DATA 帧处替换为构造的 DATA 帧
+ *
+ * 官方 UI 无感知。
  */
 final class InjectStream extends FilterInputStream {
 
     interface Builder {
-        /** 同步生成官方格式的完整 SSE 字节；失败返回 null 走原样 */
         byte[] build();
     }
 
-    private final Builder builder;
-    private final ByteArrayOutputStream carry = new ByteArrayOutputStream();
-    private byte[] injected;
-    private int pos;
-    private boolean hijacked;
-    private boolean gaveUp;
+    private static final int MAX_FRAME = 16000;
+    private static final byte[] CRLFCRLF = {'\r', '\n', '\r', '\n'};
 
-    InjectStream(InputStream in, Builder builder) {
+    private final Builder builder;
+
+    private final ByteArrayOutputStream raw = new ByteArrayOutputStream();
+    private final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    private int outPos;
+
+    private int mode;           // 0 未知, 1 h1, 2 h2, 3 加密透传
+    private boolean h1HeaderDone;
+    private boolean hijacked;
+    private boolean injectedAll;
+    private int streamId = -1;
+    private boolean logged;
+
+    InjectStream(InputStream in, Object socket, Builder builder) {
         super(in);
         this.builder = builder;
     }
@@ -43,41 +52,200 @@ final class InjectStream extends FilterInputStream {
 
     @Override
     public int read(byte[] b, int off, int len) throws IOException {
-        if (hijacked) {
-            if (injected == null) {
-                injected = builder.build();
-                if (injected == null || injected.length == 0) {
-                    hijacked = false;
-                    gaveUp = true;
+        while (true) {
+            if (outPos < out.size()) return drain(b, off, len);
+            if (injectedAll) return -1;
+
+            if (mode == 3) {                      // 加密流，原样透传
+                return super.read(b, off, len);
+            }
+
+            if (mode == 1 && h1HeaderDone) {      // h1：头已放行，开始注入
+                if (!hijacked) {
+                    hijacked = true;
+                    byte[] payload = builder.build();
+                    if (payload == null || payload.length == 0) {
+                        mode = 3;                 // 放弃
+                    } else {
+                        HookEntry.log("H1 inject bytes=" + payload.length);
+                        writeChunked(payload);
+                    }
+                }
+                if (mode == 1) continue;
+                return super.read(b, off, len);
+            }
+
+            if (mode == 2 && hijacked) {
+                if (!injectedAll) {
+                    // 等待或补充
                 }
             }
-            if (hijacked) {
-                if (pos >= injected.length) return -1;
-                int n = Math.min(len, injected.length - pos);
-                System.arraycopy(injected, pos, b, off, n);
-                pos += n;
+
+            if (processBuffered()) continue;
+
+            int n = super.read(b, off, len);
+            if (n <= 0) {
+                if (mode == 1 && h1HeaderDone && hijacked && !injectedAll) {
+                    out.write("0\r\n\r\n".getBytes(StandardCharsets.US_ASCII));
+                    injectedAll = true;
+                    continue;
+                }
+                if (mode == 2 && hijacked && !injectedAll) {
+                    out.write(frame(new byte[0], 0x00, 0x01));
+                    injectedAll = true;
+                    continue;
+                }
                 return n;
             }
+
+            if (mode == 0) detect(b, off, n);
+            if (mode == 3) return n;
+            if (mode == 1) {
+                raw.write(b, off, n);
+                if (!h1HeaderDone) {
+                    byte[] r = raw.toByteArray();
+                    int idx = indexOf(r, CRLFCRLF);
+                    if (idx < 0) return n;       // 头还没收完，先给调用方
+                    h1HeaderDone = true;
+                    int headEnd = idx + 4;
+                    byte[] head = Arrays.copyOfRange(r, 0, headEnd);
+                    out.write(head);
+                    raw.reset();
+                    if (!logged) {
+                        logged = true;
+                        HookEntry.log("H1 header len=" + headEnd);
+                    }
+                    continue;
+                }
+            } else {
+                raw.write(b, off, n);
+                if (!logged) {
+                    logged = true;
+                    StringBuilder hx = new StringBuilder();
+                    for (int k = 0; k < n && k < 16; k++) hx.append(String.format("%02x ", b[off + k]));
+                    HookEntry.log("H2 stream first n=" + n + " hex=" + hx);
+                }
+            }
         }
+    }
 
-        int n = super.read(b, off, len);
-        if (n <= 0) return n;
+    private void detect(byte[] b, int off, int n) {
+        if (n >= 5 && b[off] == 'H' && b[off + 1] == 'T' && b[off + 2] == 'T'
+                && b[off + 3] == 'P' && b[off + 4] == '/') {
+            mode = 1;
+            HookEntry.log("stream is HTTP/1.1");
+        } else if (n >= 3 && (b[off] & 0xff) == 0x16 && (b[off + 1] & 0xff) == 0x03) {
+            mode = 3;
+            HookEntry.log("stream encrypted, passthrough");
+        } else {
+            mode = 2;
+            HookEntry.log("stream is HTTP/2");
+        }
+    }
 
-        if (!gaveUp && !hijacked) {
-            carry.write(b, off, n);
-            String s = new String(carry.toByteArray(), StandardCharsets.UTF_8);
-            if (s.contains("\"v\":{\"response\"") || s.contains("\"response\":{\"message_id\"")) {
-                hijacked = true;
-                carry.reset();
-                return read(b, off, len);
+    /** 处理 raw 中的内容：h2 帧解析 */
+    private boolean processBuffered() throws IOException {
+        if (mode != 2) return false;
+        byte[] r = raw.toByteArray();
+        int consumed = 0;
+        while (r.length - consumed >= 9) {
+            int len = ((r[consumed] & 0xff) << 16) | ((r[consumed + 1] & 0xff) << 8) | (r[consumed + 2] & 0xff);
+            int type = r[consumed + 3] & 0xff;
+            int sid = ((r[consumed + 5] & 0x7f) << 24) | ((r[consumed + 6] & 0xff) << 16)
+                    | ((r[consumed + 7] & 0xff) << 8) | (r[consumed + 8] & 0xff);
+            if (r.length - consumed < 9 + len) break;
+            byte[] full = Arrays.copyOfRange(r, consumed, consumed + 9 + len);
+            consumed += 9 + len;
+
+            if (hijacked) {
+                if (type == 0x06) out.write(full);
+                continue;
             }
-            // 只保留尾部，避免无限增长
-            byte[] all = carry.toByteArray();
-            if (all.length > 4096) {
-                carry.reset();
-                carry.write(all, all.length - 2048, 2048);
+            if (type == 0x01) {
+                streamId = sid;
+                out.write(full);
+            } else if (type == 0x00) {
+                byte[] payload = builder.build();
+                if (payload == null || payload.length == 0) {
+                    out.write(full);
+                } else {
+                    hijacked = true;
+                    HookEntry.log("H2 inject sid=" + sid + " bytes=" + payload.length);
+                    writeFrames(payload);
+                }
+            } else {
+                out.write(full);
             }
+        }
+        if (consumed > 0) {
+            raw.reset();
+            raw.write(r, consumed, r.length - consumed);
+            return true;
+        }
+        return false;
+    }
+
+    private void writeChunked(byte[] payload) throws IOException {
+        int i = 0;
+        while (i < payload.length) {
+            int n = Math.min(8000, payload.length - i);
+            out.write((Integer.toHexString(n) + "\r\n").getBytes(StandardCharsets.US_ASCII));
+            out.write(payload, i, n);
+            out.write("\r\n".getBytes(StandardCharsets.US_ASCII));
+            i += n;
+        }
+        out.write("0\r\n\r\n".getBytes(StandardCharsets.US_ASCII));
+        injectedAll = true;
+    }
+
+    private void writeFrames(byte[] payload) throws IOException {
+        int i = 0;
+        while (i < payload.length) {
+            int n = Math.min(MAX_FRAME, payload.length - i);
+            boolean last = (i + n >= payload.length);
+            out.write(frame(Arrays.copyOfRange(payload, i, i + n), 0x00, last ? 0x01 : 0x00));
+            i += n;
+        }
+        if (payload.length == 0) out.write(frame(new byte[0], 0x00, 0x01));
+        injectedAll = true;
+    }
+
+    private byte[] frame(byte[] payload, int type, int flags) {
+        int len = payload.length;
+        byte[] f = new byte[9 + len];
+        f[0] = (byte) ((len >> 16) & 0xff);
+        f[1] = (byte) ((len >> 8) & 0xff);
+        f[2] = (byte) (len & 0xff);
+        f[3] = (byte) type;
+        f[4] = (byte) flags;
+        f[5] = (byte) ((streamId >> 24) & 0x7f);
+        f[6] = (byte) ((streamId >> 16) & 0xff);
+        f[7] = (byte) ((streamId >> 8) & 0xff);
+        f[8] = (byte) (streamId & 0xff);
+        System.arraycopy(payload, 0, f, 9, len);
+        return f;
+    }
+
+    private int drain(byte[] b, int off, int len) {
+        byte[] o = out.toByteArray();
+        int n = Math.min(len, o.length - outPos);
+        System.arraycopy(o, outPos, b, off, n);
+        outPos += n;
+        if (outPos >= o.length) {
+            out.reset();
+            outPos = 0;
         }
         return n;
+    }
+
+    private static int indexOf(byte[] data, byte[] pat) {
+        outer:
+        for (int i = 0; i <= data.length - pat.length; i++) {
+            for (int j = 0; j < pat.length; j++) {
+                if (data[i + j] != pat[j]) continue outer;
+            }
+            return i;
+        }
+        return -1;
     }
 }

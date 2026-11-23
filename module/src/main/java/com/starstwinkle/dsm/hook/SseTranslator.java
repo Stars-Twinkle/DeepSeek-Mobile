@@ -18,7 +18,7 @@ public final class SseTranslator {
 
     private final String messageId;
     private final boolean thinkingEnabled;
-    private int fragSeq = 1;
+    private int fragSeq = 2;
     private int lastFragId = 0;
     private String currentType = null;
     private long totalTokens = 0;
@@ -32,33 +32,43 @@ public final class SseTranslator {
         return messageId;
     }
 
-    /** 首帧：消息骨架。必须在任何 fragment 之前发出。 */
+    /** 首帧：消息骨架。必须与官方字段完全一致，否则 App 的 Kotlin 反序列化会失败。 */
     public String meta() {
         try {
-            // 思考模式下，官方首帧的第一个片段就是 THINK
             String firstType = thinkingEnabled ? "THINK" : "RESPONSE";
             JSONObject frag = new JSONObject();
-            frag.put("id", 1);
+            frag.put("id", 2);
             frag.put("type", firstType);
             frag.put("content", "");
             frag.put("elapsed_secs", JSONObject.NULL);
             frag.put("references", new JSONArray());
             frag.put("stage_id", 1);
-            lastFragId = 1;
+            lastFragId = 2;
             currentType = firstType;
 
             JSONArray frags = new JSONArray();
             frags.put(frag);
 
             JSONObject resp = new JSONObject();
-            resp.put("message_id", messageId);
-            resp.put("parent_id", JSONObject.NULL);
+            resp.put("message_id", 2);
+            resp.put("parent_id", 1);
+            resp.put("model", "");
             resp.put("role", "ASSISTANT");
             resp.put("thinking_enabled", thinkingEnabled);
+            resp.put("ban_edit", false);
+            resp.put("ban_regenerate", false);
             resp.put("status", "WIP");
+            resp.put("incomplete_message", JSONObject.NULL);
+            resp.put("accumulated_token_usage", 0);
+            resp.put("feedback", JSONObject.NULL);
+            resp.put("inserted_at", System.currentTimeMillis() / 1000.0);
+            resp.put("search_enabled", false);
             resp.put("fragments", frags);
             resp.put("conversation_mode", "DEFAULT");
-            resp.put("accumulated_token_usage", 0);
+            resp.put("has_pending_fragment", false);
+            resp.put("auto_continue", false);
+            resp.put("search_triggered", false);
+            resp.put("extra_search_providers", new JSONArray());
 
             JSONObject root = new JSONObject();
             root.put("v", new JSONObject().put("response", resp));
