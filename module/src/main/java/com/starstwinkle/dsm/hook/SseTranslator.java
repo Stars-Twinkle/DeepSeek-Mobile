@@ -35,12 +35,17 @@ public final class SseTranslator {
     /** 首帧：消息骨架。必须在任何 fragment 之前发出。 */
     public String meta() {
         try {
+            // 思考模式下，官方首帧的第一个片段就是 THINK
+            String firstType = thinkingEnabled ? "THINK" : "RESPONSE";
             JSONObject frag = new JSONObject();
             frag.put("id", 1);
-            frag.put("type", "RESPONSE");
+            frag.put("type", firstType);
             frag.put("content", "");
+            frag.put("elapsed_secs", JSONObject.NULL);
+            frag.put("references", new JSONArray());
+            frag.put("stage_id", 1);
             lastFragId = 1;
-            currentType = "RESPONSE";
+            currentType = firstType;
 
             JSONArray frags = new JSONArray();
             frags.put(frag);

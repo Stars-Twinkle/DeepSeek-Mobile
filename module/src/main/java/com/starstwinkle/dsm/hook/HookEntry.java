@@ -76,8 +76,25 @@ public class HookEntry implements IXposedHookLoadPackage {
                     protected void afterHookedMethod(MethodHookParam param) {
                         Object r = param.getResult();
                         if (!(r instanceof InputStream)) return;
-                        if (r instanceof TapStream) return;
-                        param.setResult(new TapStream((InputStream) r, line -> log("PLAIN " + line)));
+                        if (r instanceof InjectStream || r instanceof TapStream) return;
+                        final Object socket = param.thisObject;
+                        param.setResult(new InjectStream((InputStream) r, () -> ChatBridge.build(socket)));
+                        log("inject stream armed");
+                    }
+                });
+                XposedHelpers.findAndHookMethod(c, "getOutputStream", new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam param) {
+                        Object r = param.getResult();
+                        if (!(r instanceof java.io.OutputStream)) return;
+                        if (r instanceof RequestTap) return;
+                        final Object socket = param.thisObject;
+                        param.setResult(new RequestTap((java.io.OutputStream) r,
+                                (sid, prompt, thinking, raw) -> {
+                                    ChatBridge.onChatRequest(socket, sid, prompt, thinking);
+                                    log("CHAT_REQ sid=" + sid + " thinking=" + thinking
+                                            + " prompt=" + prompt);
+                                }));
                     }
                 });
                 log("tls hooked: " + cn);
