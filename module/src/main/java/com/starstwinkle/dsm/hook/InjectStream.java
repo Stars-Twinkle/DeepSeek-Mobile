@@ -37,6 +37,11 @@ final class InjectStream extends FilterInputStream {
     private boolean injectedAll;
     private int streamId = -1;
     private boolean logged;
+    private boolean drainedOnce;
+
+    private static final java.util.concurrent.atomic.AtomicInteger SEQ =
+            new java.util.concurrent.atomic.AtomicInteger();
+    final int id = SEQ.incrementAndGet();
 
     InjectStream(InputStream in, Object socket, Builder builder) {
         super(in);
@@ -67,7 +72,7 @@ final class InjectStream extends FilterInputStream {
                     if (payload == null || payload.length == 0) {
                         mode = 3;                 // 放弃
                     } else {
-                        HookEntry.log("H1 inject bytes=" + payload.length);
+                        HookEntry.log("H1 inject[#" + id + "] bytes=" + payload.length);
                         writeChunked(payload);
                     }
                 }
@@ -178,7 +183,7 @@ final class InjectStream extends FilterInputStream {
                     out.write(full);
                 } else {
                     hijacked = true;
-                    HookEntry.log("H2 inject sid=" + sid + " bytes=" + payload.length);
+                    HookEntry.log("H2 inject[#" + id + "] sid=" + sid + " bytes=" + payload.length);
                     writeFrames(payload);
                 }
             } else {
@@ -247,6 +252,10 @@ final class InjectStream extends FilterInputStream {
 
     private int drain(byte[] b, int off, int len) {
         byte[] o = out.toByteArray();
+        if (!drainedOnce) {
+            drainedOnce = true;
+            HookEntry.log("INJECT[#" + id + "] read by app, pending=" + (o.length - outPos));
+        }
         int n = Math.min(len, o.length - outPos);
         System.arraycopy(o, outPos, b, off, n);
         outPos += n;

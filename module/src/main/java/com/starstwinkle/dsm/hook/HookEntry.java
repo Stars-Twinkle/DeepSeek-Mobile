@@ -31,6 +31,12 @@ public class HookEntry implements IXposedHookLoadPackage {
     private static final String PKG = "com.starstwinkle.dsm.hook";
 
     private static XSharedPreferences sp;
+
+    /** 同一 socket 只包装一次，避免层层嵌套导致注入被外层吃掉 */
+    private static final java.util.Map<Object, Object> IN_STREAMS =
+            java.util.Collections.synchronizedMap(new java.util.WeakHashMap<Object, Object>());
+    private static final java.util.Map<Object, Object> OUT_STREAMS =
+            java.util.Collections.synchronizedMap(new java.util.WeakHashMap<Object, Object>());
     private static File logFile;
 
     @Override
@@ -76,10 +82,16 @@ public class HookEntry implements IXposedHookLoadPackage {
                     protected void afterHookedMethod(MethodHookParam param) {
                         Object r = param.getResult();
                         if (!(r instanceof InputStream)) return;
-                        if (r instanceof InjectStream || r instanceof TapStream) return;
                         final Object socket = param.thisObject;
-                        param.setResult(new InjectStream((InputStream) r, socket, () -> ChatBridge.build(socket)));
-                        log("inject stream armed");
+                        Object cached = IN_STREAMS.get(socket);
+                        if (cached instanceof InjectStream) {
+                            param.setResult(cached);
+                            return;
+                        }
+                        InjectStream s = new InjectStream((InputStream) r, socket, () -> ChatBridge.build(socket));
+                        IN_STREAMS.put(socket, s);
+                        param.setResult(s);
+                        log("inject stream armed once: " + s.id);
                     }
                 });
                 XposedHelpers.findAndHookMethod(c, "getOutputStream", new XC_MethodHook() {
@@ -87,14 +99,20 @@ public class HookEntry implements IXposedHookLoadPackage {
                     protected void afterHookedMethod(MethodHookParam param) {
                         Object r = param.getResult();
                         if (!(r instanceof java.io.OutputStream)) return;
-                        if (r instanceof RequestTap) return;
                         final Object socket = param.thisObject;
-                        param.setResult(new RequestTap((java.io.OutputStream) r,
+                        Object cached = OUT_STREAMS.get(socket);
+                        if (cached instanceof RequestTap) {
+                            param.setResult(cached);
+                            return;
+                        }
+                        RequestTap tap = new RequestTap((java.io.OutputStream) r,
                                 (sid, prompt, thinking, raw) -> {
                                     ChatBridge.onChatRequest(socket, sid, prompt, thinking);
                                     log("CHAT_REQ sid=" + sid + " thinking=" + thinking
                                             + " prompt=" + prompt);
-                                }));
+                                });
+                        OUT_STREAMS.put(socket, tap);
+                        param.setResult(tap);
                     }
                 });
                 log("tls hooked: " + cn);
