@@ -39,6 +39,22 @@ final class ChatBridge {
         HookEntry.log("BRIDGE captured prompt=" + r.prompt + " thinking=" + r.thinking);
     }
 
+/** 不依赖 socket 配对：取最近一次尚未消费的会话请求（单条对话场景足够） */
+    static byte[] buildAny() {
+        Req picked = null;
+        synchronized (PENDING) {
+            for (Req r : PENDING.values()) {
+                if (picked == null || r.at > picked.at) picked = r;
+            }
+            PENDING.clear();
+        }
+        if (picked == null) {
+            HookEntry.log("BRIDGE buildAny: no pending request");
+            return null;
+        }
+        return buildFor(picked);
+    }
+
     /** 为某个连接构造完整的官方 SSE 响应；失败返回 null（走原样） */
     static byte[] build(Object socket) {
         Req req = PENDING.remove(socket);
@@ -46,6 +62,10 @@ final class ChatBridge {
             HookEntry.log("BRIDGE no request bound to this socket");
             return null;
         }
+        return buildFor(req);
+    }
+
+    private static byte[] buildFor(Req req) {
         // 离线自检：key 以 sk-mock 开头时不发网络请求，直接回一段固定 SSE，
         // 用来单独验证「注入层」是否被官方 App 接受。
         if (Config.apiKey().startsWith("sk-mock")) {

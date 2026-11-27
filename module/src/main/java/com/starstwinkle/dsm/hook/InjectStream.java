@@ -38,6 +38,7 @@ final class InjectStream extends FilterInputStream {
     private int streamId = -1;
     private boolean logged;
     private boolean drainedOnce;
+    private int tlsCount;
 
     private static final java.util.concurrent.atomic.AtomicInteger SEQ =
             new java.util.concurrent.atomic.AtomicInteger();
@@ -103,7 +104,10 @@ final class InjectStream extends FilterInputStream {
                 return n;
             }
 
-            if (mode == 0) detect(b, off, n);
+            if (mode == 0) {
+                detect(b, off, n);
+                if (mode == 0) return n;   // 握手记录原样返回，不参与解析
+            }
             if (mode == 3) return n;
             if (mode == 1) {
                 raw.write(b, off, n);
@@ -134,14 +138,25 @@ final class InjectStream extends FilterInputStream {
         }
     }
 
+    /**
+     * 判断流类型。注意：首次读到的可能是 TLS 握手记录（0x16/0x17），
+     * 不能据此一票否决 —— 握手记录原样透传，继续等后面的明文。
+     */
     private void detect(byte[] b, int off, int n) {
+        if (n >= 3 && ((b[off] & 0xff) == 0x16 || (b[off] & 0xff) == 0x17)
+                && (b[off + 1] & 0xff) == 0x03) {
+            tlsCount++;
+            if (tlsCount == 1) HookEntry.log("tls record seen, wait for plaintext");
+            if (tlsCount > 8) {
+                mode = 3;
+                HookEntry.log("give up: stream stays encrypted");
+            }
+            return; // mode 保持 0，下次继续判断
+        }
         if (n >= 5 && b[off] == 'H' && b[off + 1] == 'T' && b[off + 2] == 'T'
                 && b[off + 3] == 'P' && b[off + 4] == '/') {
             mode = 1;
             HookEntry.log("stream is HTTP/1.1");
-        } else if (n >= 3 && (b[off] & 0xff) == 0x16 && (b[off + 1] & 0xff) == 0x03) {
-            mode = 3;
-            HookEntry.log("stream encrypted, passthrough");
         } else {
             mode = 2;
             HookEntry.log("stream is HTTP/2");

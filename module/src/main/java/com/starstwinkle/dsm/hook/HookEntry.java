@@ -56,9 +56,74 @@ public class HookEntry implements IXposedHookLoadPackage {
         hookReader();
         hookSocket();
         hookTls();
+        hookEngineRead();
         hookProbedClasses(lp.classLoader);
     }
 
+    /**
+     * 真正的明文在这里：ConscryptEngine.read 返回的是 native 解密后的字节。
+     * 在 after 里识别 SSE 首帧并替换整段内容。
+     */
+    private void hookEngineRead() {
+        try {
+            Class<?> engine = XposedHelpers.findClassIfExists(
+                    "com.android.org.conscrypt.ConscryptEngine", null);
+            if (engine == null) {
+                log("ConscryptEngine not found");
+                return;
+            }
+            for (java.lang.reflect.Method m : engine.getDeclaredMethods()) {
+                if ("read".equals(m.getName())) log("ENGINE read sig: " + m);
+            }
+            XposedBridge.hookAllMethods(engine, "read",
+                    new XC_MethodHook() {
+                        private boolean logged;
+                        private boolean hijacked;
+
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            try {
+                                Object r = param.getResult();
+                                if (!(r instanceof Integer)) return;
+                                int n = (Integer) r;
+                                if (n <= 0) return;
+                                Object a0 = param.args[0];
+                                if (!(a0 instanceof byte[])) return;
+                                byte[] buf = (byte[]) a0;
+                                int off = (Integer) param.args[1];
+                                if (off + n > buf.length) return;
+
+                                String s = new String(buf, off, n, java.nio.charset.StandardCharsets.UTF_8);
+                                if (!logged) {
+                                    logged = true;
+                                    String head = s.substring(0, Math.min(80, s.length())).replace("\n", "\\n");
+                                    log("ENGINE plain n=" + n + " head=" + head);
+                                }
+                                if (hijacked) return;
+                                boolean looksSse = s.contains("\"v\":{\"response\"")
+                                        || s.contains("data: {")
+                                        || s.contains("\"response\":{\"message_id\"");
+                                if (!looksSse) return;
+
+                                byte[] payload = ChatBridge.buildAny();
+                                if (payload == null || payload.length == 0) return;
+                                if (payload.length > buf.length - off) {
+                                    log("ENGINE payload too big: " + payload.length);
+                                    return;
+                                }
+                                System.arraycopy(payload, 0, buf, off, payload.length);
+                                param.setResult(payload.length);
+                                hijacked = true;
+                                log("ENGINE inject ok len=" + payload.length);
+                            } catch (Throwable ignored) {
+                            }
+                        }
+                    });
+            log("engine read hooked");
+        } catch (Throwable t) {
+            log("engine hook failed: " + t);
+        }
+    }
     /**
      * 钩 TLS 套接字的输入流，拿解密后的明文。
      * 系统 Conscrypt 实现类名是稳定的，不受 App 混淆影响。
