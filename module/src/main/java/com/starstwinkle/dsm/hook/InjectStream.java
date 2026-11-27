@@ -163,8 +163,16 @@ final class InjectStream extends FilterInputStream {
             }
             if (type == 0x01) {
                 streamId = sid;
+                HookEntry.log("H2 HEADERS sid=" + sid + " len=" + len + " flags=" + r[consumed - 9 - len + 4]);
                 out.write(full);
             } else if (type == 0x00) {
+                // 只劫持 SSE 流（含 "data:" 的帧）；官方 JSON 接口的响应必须原样放行，
+                // 否则会破坏登录/PoW/会话创建，表现为 INVALID_POW。
+                if (!looksSse(full)) {
+                    out.write(full);
+                    continue;
+                }
+                HookEntry.log("H2 SSE detected sid=" + sid + " len=" + len);
                 byte[] payload = builder.build();
                 if (payload == null || payload.length == 0) {
                     out.write(full);
@@ -224,6 +232,17 @@ final class InjectStream extends FilterInputStream {
         f[8] = (byte) (streamId & 0xff);
         System.arraycopy(payload, 0, f, 9, len);
         return f;
+    }
+
+    /** 帧 payload 是否是 SSE 文本 */
+    private boolean looksSse(byte[] frame) {
+        for (int k = 9; k + 5 <= frame.length; k++) {
+            if (frame[k] == 'd' && frame[k + 1] == 'a' && frame[k + 2] == 't'
+                    && frame[k + 3] == 'a' && frame[k + 4] == ':') return true;
+        }
+        // 兼容不带 data: 前缀的 stream
+        String s = new String(frame, 9, Math.max(0, Math.min(frame.length - 9, 200)), StandardCharsets.UTF_8);
+        return s.contains("\"v\":{\"response\"") || s.contains("\"response\":{\"message_id\"");
     }
 
     private int drain(byte[] b, int off, int len) {

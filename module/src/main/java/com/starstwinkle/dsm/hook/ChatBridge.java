@@ -46,6 +46,21 @@ final class ChatBridge {
             HookEntry.log("BRIDGE no request bound to this socket");
             return null;
         }
+        // 离线自检：key 以 sk-mock 开头时不发网络请求，直接回一段固定 SSE，
+        // 用来单独验证「注入层」是否被官方 App 接受。
+        if (Config.apiKey().startsWith("sk-mock")) {
+            SseTranslator tr = new SseTranslator(req.thinking);
+            StringBuilder sb = new StringBuilder();
+            sb.append(tr.meta());
+            sb.append(tr.openFragment(req.thinking ? "THINK" : "RESPONSE"));
+            sb.append(tr.append("注入测试：如果你看到这段话，说明官方 App 的响应已经被成功替换。"));
+            sb.append(tr.finish());
+            HookEntry.log("BRIDGE offline payload len=" + sb.length());
+            String h = sb.substring(0, Math.min(500, sb.length()));
+            HookEntry.log("BRIDGE payload <<<" + h.replace("\n", "\\n") + ">>>");
+            return sb.toString().getBytes(StandardCharsets.UTF_8);
+        }
+
         String base = Config.baseUrl();
         String key = Config.apiKey();
         HookEntry.log("BRIDGE calling " + base + " key=" + (key.isEmpty() ? "<empty>" : key.substring(0, Math.min(6, key.length())) + "…"));

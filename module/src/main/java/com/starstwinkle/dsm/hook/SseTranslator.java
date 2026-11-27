@@ -61,7 +61,7 @@ public final class SseTranslator {
             resp.put("incomplete_message", JSONObject.NULL);
             resp.put("accumulated_token_usage", 0);
             resp.put("feedback", JSONObject.NULL);
-            resp.put("inserted_at", System.currentTimeMillis() / 1000.0);
+            resp.put("inserted_at", System.currentTimeMillis() / 1000);
             resp.put("search_enabled", false);
             resp.put("fragments", frags);
             resp.put("conversation_mode", "DEFAULT");
